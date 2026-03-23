@@ -39,7 +39,9 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [avatarColor, setAvatarColor] = useState("#8B5CF6");
-  const [avatarImage, setAvatarImage] = useState(null);
+  const [avatarImage, setAvatarImage] = useState(
+  currentUser?.avatarImage || null
+);
 
   // Password states
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,7 +51,7 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-
+  const BASE_URL = "http://172.28.40.165:5000";
   const fullName =
     currentUser?.firstName && currentUser?.lastName
       ? `${currentUser.firstName} ${currentUser.lastName}`
@@ -74,10 +76,7 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
       setAvatarColor(currentUser.avatarColor || "#8B5CF6");
 
       // ✅ Add cache-busting timestamp to force image reload
-      const imageUrl = currentUser.avatarImage
-        ? `${currentUser.avatarImage}?t=${Date.now()}`
-        : null;
-      setAvatarImage(imageUrl);
+      setAvatarImage(prev => prev || currentUser.avatarImage || null);
     }
   }, [currentUser]);
 
@@ -125,42 +124,47 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
   };
 
   // Handle image upload for mobile
-  const handleImageUpload = async () => {
-    try {
-      // Request permission
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Permission needed", "Please allow access to your photo library");
-        return;
-      }
+const handleImageUpload = async () => {
+  try {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photo library");
+      return;
+    }
 
-      // Pick image
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
+    const result = await ImagePicker.launchImageLibraryAsync({
+  mediaTypes: 'Images', // ✅ simple et compatible
+  allowsEditing: true,
+  aspect: [1, 1],
+  quality: 0.8,
+});
+
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+
+      // ✅ Extraire l'extension du fichier depuis le URI
+      const uriParts = asset.uri.split('.');
+      const extension = uriParts[uriParts.length - 1].toLowerCase();
+      const fileType = extension === 'heic' ? 'jpeg' : extension;
+
+      // ✅ Stocker le fichier pour l’upload
+      setAvatarFile({
+        uri: Platform.OS === "android" ? asset.uri : asset.uri.replace("file://", ""),
+        type: `image/${fileType}`,
+        name: `avatar_${Date.now()}.${fileType}`,
       });
 
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const asset = result.assets[0];
-
-        // ✅ Store file info (for backend upload)
-        setAvatarFile({
-          uri: asset.uri,
-          type: "image/jpeg",
-          name: `avatar_${Date.now()}.jpg`,
-        });
-
-        // ✅ Preview image
-        setAvatarImage(asset.uri);
-        setError("");
-      }
-    } catch (err) {
-      console.error("Image picker error:", err);
-      setError("Failed to pick image");
+      // ✅ Prévisualisation de l'image
+      setAvatarImage(asset.uri);
+      setError("");
     }
-  };
+  } catch (err) {
+    console.error("Image picker error:", err);
+    setError("Failed to pick image");
+  }
+};
+
 
   // Save profile changes with API call
   const handleSaveChanges = async () => {
@@ -208,9 +212,11 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
 
       // ✅ CRITICAL: Preserve the current token when updating
       const updatedUserData = {
-        ...response.user,
-        token: currentUser.token,
-      };
+      ...response.user,
+      token: currentUser.token,
+      avatarImage: response.user.avatarImage || null,
+};
+
 
       console.log("🟢 Updated user data with token:", updatedUserData);
 
@@ -298,11 +304,12 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
   // ✅ Helper function to get avatar display URL with cache-busting
   const getAvatarDisplayUrl = () => {
   if (!avatarImage) return null;
-  if (avatarImage.startsWith("file://") || avatarImage.startsWith("http")) {
+  if (avatarImage.startsWith("http") || avatarImage.startsWith("file://")) {
     return avatarImage;
   }
-  return `http://172.28.40.165:5000${avatarImage}`;
+  return `${BASE_URL}${avatarImage}`;
 };
+
 
 
   // Color options for avatar
@@ -637,8 +644,7 @@ const AdminSettings = ({ currentUser, onLogout, onProfileUpdate }) => {
                         ]}
                         onPress={() => {
                           setAvatarColor(color);
-                          setAvatarImage(null);
-                          setAvatarFile(null);
+                          
                         }}
                         disabled={loading}
                       />

@@ -1,5 +1,6 @@
 // MainApp.jsx - Version avec Bottom Navigation Bar
 import React, { useState } from 'react';
+import { useEffect } from 'react';
 import {
   View,
   Text,
@@ -29,6 +30,21 @@ import AdminSettings from './settingsA'
 const MainApp = ({ userData, onLogout }) => {
   const [activePage, setActivePage] = useState('dashboard');
   const [user, setUser] = useState(userData);
+
+  useEffect(() => {
+  setUser(userData); // mettre à jour l'utilisateur si userData change
+  }, [userData]);
+
+// Fonction pour obtenir l'URL de l'avatar
+const getAvatarUrl = () => {
+  if (!user?.avatarImage) return null; // pas d'image → retourne null
+  if (user.avatarImage.startsWith("http") || user.avatarImage.startsWith("file://")) {
+    return user.avatarImage; // lien complet → on le garde
+  }
+  // chemin relatif depuis ton backend → on ajoute l'IP et un timestamp pour éviter le cache
+  return `http://172.28.40.165:5000${user.avatarImage}?t=${Date.now()}`;
+};
+
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard':
@@ -56,22 +72,23 @@ const handleProfileUpdate = (updatedUser) => {
       <View style={styles.appHeader}>
         <View style={styles.userInfoHeader}>
         <View style={styles.userAvatarHeader}>
-  {user?.avatarImage ? (
-    <RNImage
-      source={{ uri: user.avatarImage }}
-      style={styles.userAvatarImage}
-    />
-  ) : (
-    <View
-      style={[styles.userAvatarHeader, { backgroundColor: user.avatarColor || "#8B5CF6" }]}
-    >
-      <Text style={styles.userAvatarText}>
-        {user?.firstName && user?.lastName
-          ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
-          : "A"}
-      </Text>
-    </View>
-  )}
+{getAvatarUrl() ? (
+  <RNImage
+    source={{ uri: getAvatarUrl() }}
+    style={styles.userAvatarImage}
+  />
+) : (
+  <View
+    style={[styles.userAvatarHeader, { backgroundColor: user.avatarColor || "#8B5CF6" }]}
+  >
+    <Text style={styles.userAvatarText}>
+      {user?.firstName && user?.lastName
+        ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+        : "A"}
+    </Text>
+  </View>
+)}
+
 </View>
 
           <View>
@@ -251,6 +268,7 @@ const handleProfileUpdate = (updatedUser) => {
     </SafeAreaView>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {

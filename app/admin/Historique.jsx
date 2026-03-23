@@ -18,7 +18,7 @@ const iconMap = {
 const [chartData, setChartData] = useState([0, 0, 0, 0, 0, 0]);
 
 useEffect(() => {
-  fetch('http://172.28.40.165:5000/api/reports')  // Remplace par ton IP ou localhost correct
+  fetch('http://172.28.40.165:5000/api/reports')  
     .then(res => res.json())
     .then(data => {
       if (data.stats) setStats(data.stats);

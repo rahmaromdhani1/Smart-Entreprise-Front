@@ -1,430 +1,439 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Switch } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Slider from '@react-native-community/slider';
-import { 
-  Lightbulb, 
-  Blinds, 
-  AirVent, 
-  MonitorCheck,
-  Zap,
-  Clock,
-  Thermometer
+import {
+  Settings, SlidersHorizontal, Server,
+} from 'lucide-react-native';
+import {
+  Lightbulb, Wind, Video, Lock, Flame, Droplet,
+  Thermometer, Sun, Droplets, Gauge, Activity,
 } from 'lucide-react-native';
 
+import AddEquipment   from './AddEquipment';
+import EquipmentList  from './equipementList';
+import ManageSeuils   from './manageSeuil';
+import { getEquipments, updateEquipment, deleteEquipment } from '../../Service/EquipmentApi';
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SENSOR_CONFIG = {
+  temperature: { min: -50,   max: 150,    unit: '°C',  label: 'Temperature' },
+  light:       { min: 0,     max: 200000, unit: 'lux', label: 'Light'       },
+  humidity:    { min: 0,     max: 100,    unit: '%',   label: 'Humidity'    },
+  pressure:    { min: 300,   max: 1100,   unit: 'hPa', label: 'Pressure'    },
+  co2:         { min: 0,     max: 50000,  unit: 'ppm', label: 'CO₂'         },
+  motion:      { min: 0,     max: 1,      unit: '0/1', label: 'Motion'      },
+};
+
+const NODE_ICONS = [
+  { value: 'lighting', Icon: Lightbulb, color: '#F59E0B' },
+  { value: 'hvac',     Icon: Wind,      color: '#0EA5E9' },
+  { value: 'cameras',  Icon: Video,     color: '#6366F1' },
+  { value: 'access',   Icon: Lock,      color: '#10B981' },
+  { value: 'fire',     Icon: Flame,     color: '#EF4444' },
+  { value: 'water',    Icon: Droplet,   color: '#3B82F6' },
+];
+
+const SENSOR_TYPES = [
+  { value: 'temperature', Icon: Thermometer, color: '#EF4444' },
+  { value: 'light',       Icon: Sun,         color: '#F59E0B' },
+  { value: 'humidity',    Icon: Droplets,    color: '#3B82F6' },
+  { value: 'pressure',    Icon: Gauge,       color: '#8B5CF6' },
+  { value: 'co2',         Icon: Wind,        color: '#06B6D4' },
+  { value: 'motion',      Icon: Activity,    color: '#6366F1' },
+];
+
+/** Render the correct icon for a given equipment icon key */
+const NodeIcon = ({ iconKey, size = 24 }) => {
+  const found = NODE_ICONS.find((n) => n.value === iconKey);
+  if (!found) return <Server size={size} color="#8B5CF6" />;
+  const { Icon, color } = found;
+  return <Icon size={size} color={color} strokeWidth={2} />;
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 const ControlPage = () => {
-  
-  const [devices, setDevices] = useState({
-    light: { enabled: true, value: 75 },
-    blinds: { enabled: true, value: 60 },
-    ac: { enabled: true, value: 22 },
-    workstation: { enabled: true, value: 0 },
-  });
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [equipmentList, setEquipmentList] = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState(null);
 
-  const toggleDevice = (deviceId) => {
-    setDevices({
-      ...devices,
-      [deviceId]: { ...devices[deviceId], enabled: !devices[deviceId].enabled },
-    });
+  // Local slider values — keyed by `${equipmentId}_${sensorType}`
+  const [sliderValues, setSliderValues]   = useState({});
+
+  // Modal visibility
+  const [showEquipmentList, setShowEquipmentList] = useState(false);
+  const [showAddModal,      setShowAddModal]       = useState(false);
+  const [showSeuils,        setShowSeuils]         = useState(false);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  const getEquipmentId = (eq) => eq?._id || eq?.id || '';
+
+  const getInitialSliderValue = (sensorType) => {
+    const cfg = SENSOR_CONFIG[sensorType];
+    if (!cfg) return 0;
+    return Math.round((cfg.min + cfg.max) / 2);
   };
 
-  const updateValue = (deviceId, value) => {
-    setDevices({
-      ...devices,
-      [deviceId]: { ...devices[deviceId], value },
-    });
+  const getSliderValue = (eqId, sensorType) => {
+    const key = `${eqId}_${sensorType}`;
+    return sliderValues[key] ?? getInitialSliderValue(sensorType);
   };
 
+  const handleSliderChange = (eqId, sensorType, value) => {
+    setSliderValues((prev) => ({
+      ...prev,
+      [`${eqId}_${sensorType}`]: Math.round(value),
+    }));
+  };
+
+  // ── Fetch equipments on mount ─────────────────────────────────────────────
+  useEffect(() => {
+    const fetchEquipments = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res  = await getEquipments();
+        const list = res?.data || res;
+        setEquipmentList(Array.isArray(list) ? list : []);
+      } catch (err) {
+        console.error('[ControlPage] fetchEquipments error:', err);
+        setError('Failed to load equipments.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEquipments();
+  }, []);
+
+  // ── CRUD handlers propagated from EquipmentList / AddEquipment ───────────
+
+  /** Called when AddEquipment succeeds */
+  const handleAddSuccess = (newEquipment) => {
+    setEquipmentList((prev) => [...prev, newEquipment]);
+    setShowAddModal(false);
+  };
+
+  /** Called when EquipmentList deletes a device */
+  const handleDelete = async (id) => {
+    try {
+      await deleteEquipment(id);
+      setEquipmentList((prev) => prev.filter((e) => getEquipmentId(e) !== id));
+    } catch (err) {
+      console.error('[ControlPage] deleteEquipment error:', err);
+    }
+  };
+
+  /** Called when EquipmentList saves an edit */
+  const handleUpdate = async (id, updatedData) => {
+    try {
+      const response = await updateEquipment(id, updatedData);
+      const updated  = response?.data?.equipment || response?.data || updatedData;
+      setEquipmentList((prev) =>
+        prev.map((e) => (getEquipmentId(e) === id ? { ...e, ...updated } : e))
+      );
+    } catch (err) {
+      console.error('[ControlPage] updateEquipment error:', err);
+      // Optimistic update even on API failure
+      setEquipmentList((prev) =>
+        prev.map((e) => (getEquipmentId(e) === id ? { ...e, ...updatedData } : e))
+      );
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>IoT Control</Text>
-        <Text style={styles.subtitle}>Manage your smart modules</Text>
-      </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
 
-      {/* Control Grid */}
-      <View style={styles.controlGrid}>
-        {/* Light Control */}
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}>
-            <View style={styles.controlTitle}>
-              <View style={[styles.icon, { backgroundColor: 'rgba(245, 158, 11, 0.1)' }]}>
-                <Lightbulb color="#F59E0B" size={24} strokeWidth={2} />
-              </View>
-              <View>
-                <Text style={styles.deviceName}>Lighting</Text>
-                <View style={styles.statusLed}>
-                  <View
-                    style={[
-                      styles.led,
-                      devices.light.enabled ? styles.ledOn : styles.ledOff,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.statusText,
-                      { color: devices.light.enabled ? '#10B981' : '#6B7280' },
-                    ]}
-                  >
-                    {devices.light.enabled ? 'Activé' : 'Désactivé'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <Switch
-              value={devices.light.enabled}
-              onValueChange={() => toggleDevice('light')}
-              trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
-              thumbColor="#FFFFFF"
-            />
+        {/* ── Page Header ── */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>IoT Control Panel</Text>
+            <Text style={styles.subtitle}>Manage and monitor all connected devices</Text>
           </View>
-          {devices.light.enabled && (
-            <View style={styles.sliderControl}>
-              <View style={styles.sliderLabel}>
-                <Text style={styles.labelText}>Intensity</Text>
-                <Text style={styles.sliderValue}>{Math.round(devices.light.value)}%</Text>
-              </View>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={100}
-                value={devices.light.value}
-                onValueChange={(value) => updateValue('light', value)}
-                minimumTrackTintColor="#8B5CF6"
-                maximumTrackTintColor="#E5E7EB"
-                thumbTintColor="#8B5CF6"
-              />
-            </View>
-          )}
         </View>
 
-        {/* Blinds Control */}
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}>
-            <View style={styles.controlTitle}>
-              <View style={[styles.icon, { backgroundColor: 'rgba(139, 92, 246, 0.1)' }]}>
-                <Blinds color="#8B5CF6" size={24} strokeWidth={2} />
-              </View>
-              <View>
-                <Text style={styles.deviceName}>Blinds</Text>
-                <View style={styles.statusLed}>
-                  <View
-                    style={[
-                      styles.led,
-                      devices.blinds.enabled ? styles.ledOn : styles.ledOff,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.statusText,
-                      { color: devices.blinds.enabled ? '#10B981' : '#6B7280' },
-                    ]}
-                  >
-                    {devices.blinds.enabled ? 'Activé' : 'Désactivé'}
-                  </Text>
-                </View>
-              </View>
+        {/* ── Quick Actions ── */}
+        <View style={styles.quickActions}>
+
+          {/* Manage Seuils */}
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => setShowSeuils(true)}
+            activeOpacity={0.7}
+          >
+            <LinearGradient
+              colors={['#8B5CF6', '#EC4899']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.quickActionGradient}
+            >
+              <SlidersHorizontal size={22} color="#fff" />
+              <Text style={styles.quickActionText}>Manage Seuils</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Manage Nodes */}
+          <TouchableOpacity
+            style={styles.quickActionCard}
+            onPress={() => setShowEquipmentList(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.quickActionOutline}>
+              <Settings size={22} color="#8B5CF6" />
+              <Text style={styles.quickActionTextOutline}>Manage Nodes</Text>
             </View>
-            <Switch
-              value={devices.blinds.enabled}
-              onValueChange={() => toggleDevice('blinds')}
-              trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
-              thumbColor="#FFFFFF"
-            />
-          </View>
-          {devices.blinds.enabled && (
-            <View style={styles.sliderControl}>
-              <View style={styles.sliderLabel}>
-                <Text style={styles.labelText}>Opening</Text>
-                <Text style={styles.sliderValue}>{Math.round(devices.blinds.value)}%</Text>
-              </View>
-              <Slider
-                style={styles.slider}
-                minimumValue={0}
-                maximumValue={100}
-                value={devices.blinds.value}
-                onValueChange={(value) => updateValue('blinds', value)}
-                minimumTrackTintColor="#8B5CF6"
-                maximumTrackTintColor="#E5E7EB"
-                thumbTintColor="#8B5CF6"
-              />
-            </View>
-          )}
+          </TouchableOpacity>
+
         </View>
 
-        {/* AC Control */}
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}>
-            <View style={styles.controlTitle}>
-              <View style={[styles.icon, { backgroundColor: 'rgba(16, 185, 129, 0.1)' }]}>
-                <AirVent color="#10B981" size={24} strokeWidth={2} />
-              </View>
-              <View>
-                <Text style={styles.deviceName}>Air Conditioning</Text>
-                <View style={styles.statusLed}>
-                  <View
-                    style={[
-                      styles.led,
-                      devices.ac.enabled ? styles.ledOn : styles.ledOff,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.statusText,
-                      { color: devices.ac.enabled ? '#10B981' : '#6B7280' },
-                    ]}
-                  >
-                    {devices.ac.enabled ? 'Activé' : 'Désactivé'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <Switch
-              value={devices.ac.enabled}
-              onValueChange={() => toggleDevice('ac')}
-              trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
-              thumbColor="#FFFFFF"
-            />
+        {/* ── Loading / Error states ── */}
+        {loading && (
+          <View style={styles.stateBox}>
+            <ActivityIndicator color="#8B5CF6" size="large" />
+            <Text style={styles.stateText}>Loading equipment...</Text>
           </View>
-          {devices.ac.enabled && (
-            <View style={styles.sliderControl}>
-              <View style={styles.tempDisplay}>
-                <Thermometer color="#10B981" size={32} strokeWidth={2} />
-                <Text style={styles.tempValue}>{Math.round(devices.ac.value)}</Text>
-                <Text style={styles.tempUnit}>°C</Text>
-              </View>
-              <View style={styles.sliderLabel}>
-                <Text style={styles.labelText}>Temperature</Text>
-              </View>
-              <Slider
-                style={styles.slider}
-                minimumValue={16}
-                maximumValue={30}
-                value={devices.ac.value}
-                onValueChange={(value) => updateValue('ac', value)}
-                minimumTrackTintColor="#8B5CF6"
-                maximumTrackTintColor="#E5E7EB"
-                thumbTintColor="#8B5CF6"
-              />
-            </View>
-          )}
-        </View>
+        )}
 
-        {/* Workstation Control */}
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}>
-            <View style={styles.controlTitle}>
-              <View style={[styles.icon, { backgroundColor: 'rgba(236, 72, 153, 0.1)' }]}>
-                <MonitorCheck color="#EC4899" size={24} strokeWidth={2} />
-              </View>
-              <View>
-                <Text style={styles.deviceName}>Station A-12</Text>
-                <View style={styles.statusLed}>
-                  <View
-                    style={[
-                      styles.led,
-                      devices.workstation.enabled ? styles.ledOn : styles.ledOff,
-                    ]}
-                  />
-                  <Text
-                    style={[
-                      styles.statusText,
-                      { color: devices.workstation.enabled ? '#10B981' : '#6B7280' },
-                    ]}
-                  >
-                    {devices.workstation.enabled ? 'Occupé' : 'Libre'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <Switch
-              value={devices.workstation.enabled}
-              onValueChange={() => toggleDevice('workstation')}
-              trackColor={{ false: '#E5E7EB', true: '#8B5CF6' }}
-              thumbColor="#FFFFFF"
-            />
+        {error && !loading && (
+          <View style={[styles.stateBox, { backgroundColor: '#FEF2F2' }]}>
+            <Text style={[styles.stateText, { color: '#EF4444' }]}>{error}</Text>
           </View>
-          {devices.workstation.enabled && (
-            <View style={styles.energyStats}>
-              <View style={styles.energyStat}>
-                <View style={styles.energyStatIcon}>
-                  <Zap size={16} color="#F59E0B" strokeWidth={2} />
+        )}
+
+        {/* ── Control Grid (dynamic) ── */}
+        {!loading && !error && (
+          <View style={styles.controlGrid}>
+            {equipmentList.length === 0 ? (
+              <View style={styles.emptyState}>
+                <View style={styles.emptyIcon}>
+                  <Server size={40} color="#8B5CF6" />
                 </View>
-                <Text style={styles.energyLabel}>Energy</Text>
-                <Text style={styles.energyValue}>145W</Text>
+                <Text style={styles.emptyTitle}>No Equipment Registered</Text>
+                <Text style={styles.emptyText}>
+                  Tap <Text style={{ fontWeight: '700' }}>Manage Nodes → +</Text> to add your first device.
+                </Text>
               </View>
-              <View style={styles.energyStat}>
-                <View style={styles.energyStatIcon}>
-                  <Clock size={16} color="#8B5CF6" strokeWidth={2} />
-                </View>
-                <Text style={styles.energyLabel}>Duration</Text>
-                <Text style={styles.energyValue}>4h 23m</Text>
+            ) : (
+              equipmentList.map((equipment) => {
+                const eqId     = getEquipmentId(equipment);
+                const isOnline = equipment.status === 'online';
+                const hasSensors = Array.isArray(equipment.sensors) && equipment.sensors.length > 0;
+
+                return (
+                  <View key={eqId} style={styles.controlCard}>
+
+                    {/* Card Header */}
+                    <View style={styles.controlHeader}>
+                      <View style={styles.controlTitle}>
+                        <View style={styles.controlIconBox}>
+                          <NodeIcon iconKey={equipment.icon} size={24} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.deviceName}>{equipment.name}</Text>
+                          <Text style={styles.deviceNodeId}>ID: {equipment.nodeId}</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* Status LED */}
+                    <View style={styles.statusRow}>
+                      <View style={[styles.led, isOnline ? styles.ledOn : styles.ledOff]} />
+                      <Text style={[styles.statusText, { color: isOnline ? '#10B981' : '#6B7280' }]}>
+                        {isOnline ? 'Active' : 'Inactive'}
+                      </Text>
+                    </View>
+
+                    {/* Sensor Sliders */}
+                    {hasSensors && equipment.sensors.map((sensorType) => {
+                      const cfg        = SENSOR_CONFIG[sensorType];
+                      if (!cfg) return null;
+                      const sensorMeta = SENSOR_TYPES.find((s) => s.value === sensorType);
+                      const val        = getSliderValue(eqId, sensorType);
+                      const { Icon: SensorIcon, color: sensorColor } = sensorMeta || {};
+
+                      return (
+                        <View key={sensorType} style={styles.sliderControl}>
+                          <View style={styles.sliderLabel}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              {SensorIcon && <SensorIcon size={14} color={sensorColor} strokeWidth={2} />}
+                              <Text style={styles.labelText}>{cfg.label}</Text>
+                            </View>
+                            <Text style={[styles.sliderValue, { color: sensorColor }]}>
+                              {val}{cfg.unit}
+                            </Text>
+                          </View>
+                          <Slider
+                            style={styles.slider}
+                            minimumValue={cfg.min}
+                            maximumValue={cfg.max}
+                            value={val}
+                            step={1}
+                            onValueChange={(v) => handleSliderChange(eqId, sensorType, v)}
+                            minimumTrackTintColor={sensorColor || '#8B5CF6'}
+                            maximumTrackTintColor="#E5E7EB"
+                            thumbTintColor={sensorColor || '#8B5CF6'}
+                          />
+                        </View>
+                      );
+                    })}
+
+                    {/* No sensors fallback */}
+                    {!hasSensors && (
+                      <Text style={styles.noSensorsText}>No sensors attached</Text>
+                    )}
+
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* ── Device Statistics ── */}
+        {!loading && !error && (
+          <View style={styles.statsCard}>
+            <Text style={styles.statsCardTitle}>Device Statistics</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statItem}>
+                <Text style={styles.statLabel}>Total Devices</Text>
+                <Text style={styles.statValue}>{equipmentList.length}</Text>
               </View>
-              <View style={styles.energyStat}>
-                <View style={styles.energyStatIcon}>
-                  <Thermometer size={16} color="#10B981" strokeWidth={2} />
-                </View>
-                <Text style={styles.energyLabel}>Temp</Text>
-                <Text style={styles.energyValue}>23°C</Text>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statLabel, { color: '#065F46' }]}>Active</Text>
+                <Text style={[styles.statValue, { color: '#10B981' }]}>
+                  {equipmentList.filter((e) => e.status === 'online').length}
+                </Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statItem}>
+                <Text style={[styles.statLabel, { color: '#991B1B' }]}>Inactive</Text>
+                <Text style={[styles.statValue, { color: '#EF4444' }]}>
+                  {equipmentList.filter((e) => e.status !== 'online').length}
+                </Text>
               </View>
             </View>
-          )}
-        </View>
-      </View>
+          </View>
+        )}
+
+      </ScrollView>
+
+      {/* ── Modal: Manage Nodes ── */}
+      <Modal
+        visible={showEquipmentList}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowEquipmentList(false)}
+      >
+        <EquipmentList
+          onClose={() => setShowEquipmentList(false)}
+          equipments={equipmentList}
+          onDelete={handleDelete}
+          onUpdate={handleUpdate}
+          onAddPress={() => setShowAddModal(true)}
+        />
+
+        {/* Nested Add Modal */}
+        <Modal
+          visible={showAddModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowAddModal(false)}
+        >
+          <AddEquipment
+            onClose={() => setShowAddModal(false)}
+            onSuccess={handleAddSuccess}
+          />
+        </Modal>
+      </Modal>
+
+      {/* ── Modal: Manage Seuils ── */}
+      <Modal
+        visible={showSeuils}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowSeuils(false)}
+      >
+        <ManageSeuils
+          onClose={() => setShowSeuils(false)}
+          equipments={equipmentList}
+        />
+      </Modal>
+
     </View>
   );
 };
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    marginBottom: 32,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#6B7280',
-  },
-  controlGrid: {
-    paddingHorizontal: 24,
-    marginBottom: 32,
-  },
-  controlCard: {
-    flex: 1,
-    minWidth: 190,
-    backgroundColor: '#FFFFFF',
-    padding: 24,
-    borderRadius: 16,
-    shadowColor: '#EC4899',
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 20,
-    elevation: 4,
-    marginBottom: 24,
-  },
-  controlHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  controlTitle: {
-    flexDirection: 'row',
-    gap: 12,
-    flex: 1,
-  },
-  icon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconText: {
-    fontSize: 24,
-  },
-  deviceName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  statusLed: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  led: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  ledOn: {
-    backgroundColor: '#10B981',
-    shadowColor: '#10B981',
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-  },
-  ledOff: {
-    backgroundColor: '#D1D5DB',
-    opacity: 0.5,
-  },
-  statusText: {
-    fontSize: 13,
-  },
-  sliderControl: {
-    marginTop: 20,
-  },
-  sliderLabel: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  labelText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  sliderValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#8B5CF6',
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  tempDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  tempValue: {
-    fontSize: 28,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  tempUnit: {
-    fontSize: 18,
-    color: '#6B7280',
-  },
-  energyStats: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 20,
-  },
-  energyStat: {
-    flex: 1,
-    backgroundColor: '#F8F7FC',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  energyStatIcon: {
-    marginBottom: 8,
-  },
-  energyLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 4,
-  },
-  energyValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
-  },
+  container:              { flex: 1, backgroundColor: '#F9FAFB' },
+  scrollContent:          { paddingBottom: 40 },
+
+  header:                 { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingHorizontal: 24, paddingTop: 24 },
+  title:                  { fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  subtitle:               { fontSize: 14, color: '#6B7280' },
+
+  quickActions:           { flexDirection: 'row', paddingHorizontal: 24, marginBottom: 24, gap: 12 },
+  quickActionCard:        { flex: 1, borderRadius: 16, overflow: 'hidden', shadowColor: '#8B5CF6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 12, elevation: 6 },
+  quickActionGradient:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8 },
+  quickActionText:        { fontSize: 14, fontWeight: '600', color: '#fff' },
+  quickActionOutline:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, backgroundColor: '#fff', borderWidth: 2, borderColor: '#8B5CF6', borderRadius: 16, gap: 8 },
+  quickActionTextOutline: { fontSize: 14, fontWeight: '600', color: '#8B5CF6' },
+
+  stateBox:               { alignItems: 'center', paddingVertical: 40, marginHorizontal: 24, borderRadius: 16, backgroundColor: '#fff', gap: 12 },
+  stateText:              { fontSize: 14, color: '#6B7280' },
+
+  controlGrid:            { paddingHorizontal: 24, gap: 0 },
+  emptyState:             { alignItems: 'center', paddingVertical: 60, backgroundColor: '#fff', borderRadius: 16, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
+  emptyIcon:              { width: 80, height: 80, backgroundColor: 'rgba(139,92,246,0.08)', borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  emptyTitle:             { fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 8 },
+  emptyText:              { fontSize: 14, color: '#6B7280', textAlign: 'center', paddingHorizontal: 20 },
+
+  controlCard:            { backgroundColor: '#fff', padding: 20, borderRadius: 16, shadowColor: '#000', shadowOpacity: 0.07, shadowOffset: { width: 0, height: 3 }, shadowRadius: 10, elevation: 3, marginBottom: 16 },
+  controlHeader:          { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  controlTitle:           { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+  controlIconBox:         { width: 48, height: 48, backgroundColor: '#F3F4F6', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  deviceName:             { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 2 },
+  deviceNodeId:           { fontSize: 12, color: '#6B7280', fontFamily: 'Courier New' },
+
+  statusRow:              { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 16 },
+  led:                    { width: 10, height: 10, borderRadius: 5 },
+  ledOn:                  { backgroundColor: '#10B981', shadowColor: '#10B981', shadowOpacity: 0.5, shadowRadius: 4 },
+  ledOff:                 { backgroundColor: '#D1D5DB' },
+  statusText:             { fontSize: 13, fontWeight: '500' },
+
+  sliderControl:          { marginBottom: 14 },
+  sliderLabel:            { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  labelText:              { fontSize: 13, color: '#6B7280', fontWeight: '500' },
+  sliderValue:            { fontSize: 13, fontWeight: '700' },
+  slider:                 { width: '100%', height: 36 },
+  noSensorsText:          { fontSize: 12, color: '#9CA3AF', marginTop: 4, fontStyle: 'italic' },
+
+  // Stats card
+  statsCard:              { marginHorizontal: 24, marginTop: 8, backgroundColor: '#fff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 2 },
+  statsCardTitle:         { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 16 },
+  statsRow:               { flexDirection: 'row', alignItems: 'center' },
+  statItem:               { flex: 1, alignItems: 'center' },
+  statLabel:              { fontSize: 12, color: '#6B7280', fontWeight: '500', marginBottom: 6 },
+  statValue:              { fontSize: 26, fontWeight: '700', color: '#111827' },
+  statDivider:            { width: 1, height: 40, backgroundColor: '#F3F4F6' },
 });
 
 export default ControlPage;

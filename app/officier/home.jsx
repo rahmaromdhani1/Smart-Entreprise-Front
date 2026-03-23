@@ -1,6 +1,7 @@
 // MainApp.jsx
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform,Image as RNImage } from 'react-native';
 import DashboardPage from './Dashboard';
 import ControlPage from './Control';
 import NotificationsPage from './Notification';
@@ -18,6 +19,18 @@ import {
 const MainApp = ({ userData, onLogout }) => {
   const [activePage, setActivePage] = useState('dashboard');
   const [user, setUser] = useState(userData);
+  useEffect(() => {
+    setUser(userData); // mettre à jour l'utilisateur si userData change
+    }, [userData]);
+    
+  const getAvatarUrl = () => {
+  if (!user?.avatarImage) return null; // pas d'image → retourne null
+  if (user.avatarImage.startsWith("http") || user.avatarImage.startsWith("file://")) {
+    return user.avatarImage; // lien complet → on le garde
+  }
+  // chemin relatif depuis ton backend → on ajoute l'IP et un timestamp pour éviter le cache
+  return `http://172.28.40.165:5000${user.avatarImage}?t=${Date.now()}`;
+};
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard':
@@ -27,7 +40,7 @@ const MainApp = ({ userData, onLogout }) => {
       case 'notifications':
         return <NotificationsPage userData={userData} />;
       case 'settings':
-        return <SettingsPage currentUser={userData} onLogout={onLogout} onProfileUpdate={handleProfileUpdate} />;
+        return <SettingsPage currentUser={user} onLogout={onLogout} onProfileUpdate={handleProfileUpdate} />;
       default:
         return <DashboardPage userData={userData} />;
     }
@@ -40,15 +53,24 @@ const handleProfileUpdate = (updatedUser) => {
       {/* Header avec info utilisateur */}
       <View style={styles.appHeader}>
         <View style={styles.userInfoHeader}>
-          <View
-                style={[styles.userAvatarHeader, { backgroundColor: user.avatarColor || "#8B5CF6" }]}
-              >
-                <Text style={styles.userAvatarText}>
-                  {user?.firstName && user?.lastName
-                    ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
-                    : "A"}
-                </Text>
-              </View>
+          <View style={styles.userAvatarHeader}>
+          {getAvatarUrl() ? (
+            <RNImage
+              source={{ uri: getAvatarUrl() }}
+              style={styles.userAvatarImage}
+            />
+          ) : (
+            <View
+              style={[styles.userAvatarHeader, { backgroundColor: user.avatarColor || "#8B5CF6" }]}
+            >
+              <Text style={styles.userAvatarText}>
+                {user?.firstName && user?.lastName
+                  ? `${user.firstName.charAt(0)}${user.lastName.charAt(0)}`.toUpperCase()
+                  : "A"}
+              </Text>
+            </View>
+          )}
+         </View>
           <View>
             <Text style={styles.userNameHeader}>
               {userData?.firstName && userData?.lastName ? `${userData.firstName} ${userData.lastName}`: 'Admin'}
@@ -262,6 +284,12 @@ const styles = StyleSheet.create({
   navIconActive: {
     transform: [{ scale: 1.1 }],
   },
+  userAvatarImage: {
+  width: 48,
+  height: 48,
+  borderRadius: 24,
+},
+
   navLabel: {
     fontSize: 12,
     fontWeight: '500',

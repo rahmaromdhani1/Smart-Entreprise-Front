@@ -6,7 +6,7 @@ const authService = {
   // ========== LOGIN ==========
   login: async (mail, password, role) => {
     try {
-      const response = await api.post('/auth/login', { mail, password, role });
+      const response = await api.post('/auth/login', { mail, password, selectedRole: role });
 
       return {
         success: true,

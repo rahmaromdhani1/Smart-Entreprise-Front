@@ -64,7 +64,8 @@ const Login = ({ onLogin }) => {
           mail: result.data.mail,
           role: result.data.role,
           token: result.data.token,
-          avatar: result.data.firstName.charAt(0).toUpperCase(),
+          avatarImage: result.data.avatarImage, // ✅ URL complète
+  avatarColor: result.data.avatarColor,
         };
 
         await storageService.saveUserData(user);
