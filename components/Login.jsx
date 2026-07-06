@@ -65,7 +65,13 @@ const Login = ({ onLogin }) => {
           role: result.data.role,
           token: result.data.token,
           avatarImage: result.data.avatarImage, // ✅ URL complète
-  avatarColor: result.data.avatarColor,
+          avatarColor: result.data.avatarColor,
+          functionalGrade:result.data.functionalGrade,
+          floor:result.data.floor,
+          officeRoom:result.data.officeRoom,
+          additionalAccess:result.data.additionalAccess,
+          isOnline:result.data.isOnline,
+          lastSeen:result.data.lastSeen
         };
 
         await storageService.saveUserData(user);

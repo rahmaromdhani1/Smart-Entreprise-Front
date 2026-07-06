@@ -6,9 +6,10 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/logo.png",
-    "platforms": ["ios", "android"],
-    
-   
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/logo.png",
@@ -32,7 +33,8 @@
       "androidCollapsedTitle": "SEMS Alerts"
     },
     "android": {
-      "package": "com.votreentreprise.sems",
+      "package": "com.ksi.sems",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#FFFFFF"
@@ -70,6 +72,12 @@
     },
     "web": {
       "favicon": "./assets/logo.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "358630b7-b7a3-4989-804f-3b1ac257229f"
+      }
+    },
+    "owner": "rahmatest1"
   }
 }

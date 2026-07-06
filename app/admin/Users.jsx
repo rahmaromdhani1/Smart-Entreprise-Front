@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';  // added useRef
 import {
   View,
   Text,
@@ -12,12 +12,133 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Switch,              // added Switch
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { Users, Crown, UserCheck, CheckCircle } from 'lucide-react-native';
-import { getUsers, createUser, updateUser, deleteUser } from '../../Service/users';
+import { getUsers, createUser, updateUser, deleteUser, getFunctionalGrades, getFloors, getOfficeRooms } from '../../Service/users';
+import { useSocket } from '../../context/SocketContext';
+
+
+// ─── AdditionalAccessManager (NEW - mirrors web) ─────────────────────────────
+const AdditionalAccessManager = ({ value = [], onChange, availableFloors = [], availableRooms = [] }) => {
+  const addRow    = () => onChange([...value, { floor: '', officeRoom: '', canControl: false }]);
+  const removeRow = (i) => onChange(value.filter((_, idx) => idx !== i));
+  const updateRow = (i, field, v) => onChange(value.map((row, idx) => idx === i ? { ...row, [field]: v } : row));
+
+  return (
+    <View style={aamStyles.container}>
+      <View style={aamStyles.header}>
+        <View style={aamStyles.headerLeft}>
+          <Text style={aamStyles.title}>Additional Access</Text>
+          <View style={aamStyles.optionalBadge}>
+            <Text style={aamStyles.optionalText}>optional</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={aamStyles.addBtn} onPress={addRow} activeOpacity={0.7}>
+          <Ionicons name="add" size={14} color="#8B5CF6" />
+          <Text style={aamStyles.addBtnText}>Add Room</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={aamStyles.hint}>
+        Grant access to nodes outside the primary office. Enable{' '}
+        <Text style={{ fontWeight: '700' }}>Control</Text> to allow slider access.
+      </Text>
+
+      {value.length === 0 ? (
+        <View style={aamStyles.emptyBox}>
+          <Text style={aamStyles.emptyText}>No additional access assigned</Text>
+        </View>
+      ) : (
+        value.map((row, i) => (
+          <View key={i} style={aamStyles.row}>
+            {/* Floor */}
+            <View style={aamStyles.halfField}>
+              <TextInput
+                style={aamStyles.input}
+                value={row.floor}
+                onChangeText={(v) => updateRow(i, 'floor', v)}
+                placeholder="Floor…"
+                placeholderTextColor="#9CA3AF"
+              />
+              {availableFloors
+                .filter(f => row.floor.length > 0 && f.toLowerCase().includes(row.floor.toLowerCase()) && f !== row.floor)
+                .slice(0, 3)
+                .map((f, idx) => (
+                  <TouchableOpacity key={idx} onPress={() => updateRow(i, 'floor', f)} style={aamStyles.suggestion}>
+                    <Text style={aamStyles.suggestionText}>{f}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+
+            {/* Room */}
+            <View style={aamStyles.halfField}>
+              <TextInput
+                style={aamStyles.input}
+                value={row.officeRoom}
+                onChangeText={(v) => updateRow(i, 'officeRoom', v)}
+                placeholder="Room…"
+                placeholderTextColor="#9CA3AF"
+              />
+              {availableRooms
+                .filter(r => row.officeRoom.length > 0 && r.toLowerCase().includes(row.officeRoom.toLowerCase()) && r !== row.officeRoom)
+                .slice(0, 3)
+                .map((r, idx) => (
+                  <TouchableOpacity key={idx} onPress={() => updateRow(i, 'officeRoom', r)} style={aamStyles.suggestion}>
+                    <Text style={aamStyles.suggestionText}>{r}</Text>
+                  </TouchableOpacity>
+                ))}
+            </View>
+
+            {/* Control toggle */}
+            <View style={aamStyles.toggleCol}>
+              <Switch
+                value={row.canControl}
+                onValueChange={(v) => updateRow(i, 'canControl', v)}
+                trackColor={{ false: '#D1D5DB', true: '#10B981' }}
+                thumbColor="#FFFFFF"
+              />
+              <Text style={[aamStyles.toggleLabel, { color: row.canControl ? '#10B981' : '#6B7280' }]}>
+                {row.canControl ? 'Control' : 'View'}
+              </Text>
+            </View>
+
+            {/* Remove */}
+            <TouchableOpacity onPress={() => removeRow(i)} style={aamStyles.removeBtn} activeOpacity={0.7}>
+              <Ionicons name="trash-outline" size={16} color="#EF4444" />
+            </TouchableOpacity>
+          </View>
+        ))
+      )}
+    </View>
+  );
+};
+
+const aamStyles = StyleSheet.create({
+  container:     { marginTop: 4, marginBottom: 16 },
+  header:        { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  headerLeft:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  title:         { fontSize: 13, fontWeight: '700', color: '#111827' },
+  optionalBadge: { backgroundColor: '#F3F4F6', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  optionalText:  { fontSize: 11, color: '#6B7280' },
+  addBtn:        { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(139,92,246,0.1)', borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)' },
+  addBtnText:    { fontSize: 12, fontWeight: '600', color: '#8B5CF6' },
+  hint:          { fontSize: 12, color: '#6B7280', marginBottom: 10 },
+  emptyBox:      { alignItems: 'center', padding: 12, borderWidth: 1, borderColor: '#E5E7EB', borderStyle: 'dashed', borderRadius: 8, marginTop: 6 },
+  emptyText:     { fontSize: 12, color: '#9CA3AF' },
+  row:           { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8, padding: 10, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
+  halfField:     { flex: 1 },
+  input:         { padding: 8, borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, fontSize: 13, color: '#111827', backgroundColor: '#FFFFFF' },
+  suggestion:    { padding: 8, backgroundColor: '#F3F4F6', marginTop: 2, borderRadius: 6 },
+  suggestionText:{ fontSize: 12, color: '#374151' },
+  toggleCol:     { alignItems: 'center', justifyContent: 'center', gap: 2 },
+  toggleLabel:   { fontSize: 10, fontWeight: '600' },
+  removeBtn:     { padding: 8, backgroundColor: 'rgba(239,68,68,0.08)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)', borderRadius: 7, alignSelf: 'center' },
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 
 const AdminUsers = () => {
@@ -35,6 +156,11 @@ const AdminUsers = () => {
   const [fieldErrors, setFieldErrors] = useState({ email: '', phone: '' });
   const [functionalGrades, setFunctionalGrades] = useState([]);
 
+  // NEW: available options from API
+  const [availableGrades, setAvailableGrades] = useState([]);
+  const [availableFloors, setAvailableFloors] = useState([]);
+  const [availableRooms,  setAvailableRooms]  = useState([]);
+  const { socket } = useSocket(); // ← AJOUTER ICI
   // Form data states
   const [newUserData, setNewUserData] = useState({
     firstName: '',
@@ -43,6 +169,9 @@ const AdminUsers = () => {
     phone: '',
     role: 'staff',
     functionalGrade: '',
+    floor: '',            // NEW
+    officeRoom: '',       // NEW
+    additionalAccess: [], // NEW
   });
 
   const [editUserData, setEditUserData] = useState({
@@ -52,16 +181,42 @@ const AdminUsers = () => {
     phone: '',
     role: 'staff',
     functionalGrade: '',
+    floor: '',            // NEW
+    officeRoom: '',       // NEW
+    additionalAccess: [], // NEW
   });
 
   // Toast notification state
   const [toast, setToast] = useState({ show: false, type: '', message: '' });
   const [toastAnimation] = useState(new Animated.Value(-100));
 
+
   // Fetch users on mount
   useEffect(() => {
     fetchUsers();
+    fetchGrades();
+    fetchFloors();
+    fetchRooms();
+    // ← interval supprimé, remplacé par socket
   }, []);
+
+    useEffect(() => {
+    if (!socket) return;
+
+    const handleStatusChange = ({ userId, status, lastLogin }) => {
+      setUsers(prev => prev.map(u =>
+        u.id === userId
+          ? { ...u, status, lastLogin: lastLogin ?? u.lastLogin }
+          : u
+      ));
+    };
+
+    socket.on('user:statusChange', handleStatusChange);
+
+    return () => {
+      socket.off('user:statusChange', handleStatusChange);
+    };
+  }, [socket]);
 
   // Toast animation effect
   useEffect(() => {
@@ -113,12 +268,48 @@ const AdminUsers = () => {
       setError(null);
       const usersData = await getUsers();
       setUsers(usersData);
+
+      // NEW: derive floors/rooms from user data as fallback (mirrors web)
+      const floors = [...new Set(usersData.map(u => u.floor).filter(Boolean))];
+      const rooms  = [...new Set(usersData.map(u => u.officeRoom).filter(Boolean))];
+      if (floors.length) setAvailableFloors(prev => [...new Set([...prev, ...floors])]);
+      if (rooms.length)  setAvailableRooms(prev  => [...new Set([...prev, ...rooms])]);
     } catch (err) {
       console.error('Error fetching users:', err);
       setError('Failed to load users. Please try again.');
       showToast('error', 'Failed to load users: ' + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // NEW
+  const fetchGrades = async () => {
+    try {
+      const grades = await getFunctionalGrades();
+      setAvailableGrades(grades);
+    } catch (err) {
+      console.error('Error fetching grades:', err);
+    }
+  };
+
+  // NEW
+  const fetchFloors = async () => {
+    try {
+      const floors = await getFloors();
+      setAvailableFloors(floors);
+    } catch (err) {
+      console.error('Error fetching floors:', err);
+    }
+  };
+
+  // NEW
+  const fetchRooms = async () => {
+    try {
+      const rooms = await getOfficeRooms();
+      setAvailableRooms(rooms);
+    } catch (err) {
+      console.error('Error fetching rooms:', err);
     }
   };
 
@@ -136,6 +327,9 @@ const AdminUsers = () => {
       phone: '',
       role: 'staff',
       functionalGrade: '',
+      floor: '',            // NEW
+      officeRoom: '',       // NEW
+      additionalAccess: [], // NEW
     });
     setShowAddModal(true);
   };
@@ -174,11 +368,25 @@ const AdminUsers = () => {
     password: generatedPassword,
     role: newUserData.role,
     functionalGrade: newUserData.role === 'staff' ? newUserData.functionalGrade.trim() : null,
+    floor:            newUserData.floor.trim()      || null,      // NEW
+    officeRoom:       newUserData.officeRoom.trim()  || null,     // NEW
+    additionalAccess: newUserData.additionalAccess ?? [],         // NEW
   };
 
   try {
     const newUser = await createUser(userData);
     setUsers([...users, newUser]);
+
+    // NEW: update available options locally (mirrors web)
+    const allNewFloors = [newUserData.floor.trim(), ...(newUserData.additionalAccess ?? []).map(a => a.floor.trim())].filter(Boolean);
+    const allNewRooms  = [newUserData.officeRoom.trim(), ...(newUserData.additionalAccess ?? []).map(a => a.officeRoom.trim())].filter(Boolean);
+    setAvailableFloors(prev => [...new Set([...prev, ...allNewFloors])]);
+    setAvailableRooms(prev  => [...new Set([...prev, ...allNewRooms])]);
+
+    fetchGrades(); // NEW
+    fetchFloors(); // NEW
+    fetchRooms();  // NEW
+
     setShowAddModal(false);
     showToast('success', `User ${newUser.name} created successfully!`);
   } catch (err) {
@@ -219,6 +427,10 @@ const AdminUsers = () => {
     const currentFirstName = currentName[0];
     const currentLastName = currentName.slice(1).join(' ');
 
+    // NEW: ensure current floor/room are in the available lists
+    if (user.floor      && !availableFloors.includes(user.floor))      setAvailableFloors(prev => [...prev, user.floor]);
+    if (user.officeRoom && !availableRooms.includes(user.officeRoom))   setAvailableRooms(prev  => [...prev, user.officeRoom]);
+
     setUserToEdit(user);
     setEditUserData({
       firstName: currentFirstName,
@@ -227,6 +439,9 @@ const AdminUsers = () => {
       phone: user.phone || '',
       role: user.role,
       functionalGrade: user.functionalGrade || '',
+      floor:            user.floor       || '',     // NEW
+      officeRoom:       user.officeRoom   || '',    // NEW
+      additionalAccess: user.additionalAccess ?? [], // NEW
     });
     setShowEditModal(true);
   };
@@ -241,6 +456,9 @@ const AdminUsers = () => {
         lastName: editUserData.lastName.trim(),
         email: editUserData.email.trim(),
         role: editUserData.role.toLowerCase(),
+        floor:            editUserData.floor.trim()      || null,     // NEW
+        officeRoom:       editUserData.officeRoom.trim()  || null,    // NEW
+        additionalAccess: editUserData.additionalAccess ?? [],        // NEW
       };
 
       if (editUserData.phone && editUserData.phone.trim()) {
@@ -253,6 +471,12 @@ const AdminUsers = () => {
 
       // Call API to update user
       const updatedUser = await updateUser(userToEdit.id, updateData);
+
+      // NEW: update available options locally
+      const allEditFloors = [editUserData.floor.trim(), ...(editUserData.additionalAccess ?? []).map(a => a.floor.trim())].filter(Boolean);
+      const allEditRooms  = [editUserData.officeRoom.trim(), ...(editUserData.additionalAccess ?? []).map(a => a.officeRoom.trim())].filter(Boolean);
+      setAvailableFloors(prev => [...new Set([...prev, ...allEditFloors])]);
+      setAvailableRooms(prev  => [...new Set([...prev, ...allEditRooms])]);
 
       // Update user in state
       setUsers(users.map((u) => (u.id === userToEdit.id ? updatedUser : u)));
@@ -401,7 +625,7 @@ const AdminUsers = () => {
                 <View
                   style={[
                     styles.statusDot,
-                    { backgroundColor: user.status === 'active' ? '#10B981' : '#6B7280' },
+                    { backgroundColor: user.status === 'online' ? '#10B981' : '#6B7280' },
                   ]}
                 />
               </View>
@@ -435,9 +659,23 @@ const AdminUsers = () => {
                     </View>
                   )}
 
+                  {/* NEW: Floor */}
+                  <View style={styles.metaItem}>
+                    <Text style={styles.metaLabel}>Floor</Text>
+                    <Text style={styles.metaValue}>{user.floor || '—'}</Text>
+                  </View>
+
+                  {/* NEW: Office Room */}
+                  <View style={styles.metaItem}>
+                    <Text style={styles.metaLabel}>Office Room</Text>
+                    <Text style={styles.metaValue}>{user.officeRoom || '—'}</Text>
+                  </View>
+
                   <View style={styles.metaItem}>
                     <Text style={styles.metaLabel}>Last Login</Text>
-                    <Text style={styles.metaValue}>{user.lastLogin}</Text>
+                    <Text style={styles.metaValue}>
+                      {user.lastLogin || '—'}
+                    </Text>
                   </View>
                 </View>
 
@@ -509,7 +747,7 @@ const AdminUsers = () => {
       <CheckCircle size={24} color="#10B981" strokeWidth={2} />
     </LinearGradient>
     <Text style={styles.statValue}>
-      {users.filter((u) => u.status === 'active').length}
+      {users.filter((u) => u.status === 'online').length}
     </Text>
     <Text style={styles.statLabel}>Active Now</Text>
   </View>
@@ -653,8 +891,8 @@ const AdminUsers = () => {
       placeholder="Select or type grade"
       placeholderTextColor="#9CA3AF"
     />
-    {/* Dropdown suggestions */}
-    {functionalGrades
+    {/* Dropdown suggestions — now merges local + API grades (NEW) */}
+    {[...new Set([...functionalGrades, ...availableGrades])]
       .filter(g => g.toLowerCase().includes(newUserData.functionalGrade.toLowerCase()) && g !== newUserData.functionalGrade)
       .map((grade, idx) => (
         <TouchableOpacity
@@ -668,6 +906,54 @@ const AdminUsers = () => {
   </View>
 )}
 
+              {/* NEW: Floor & Office Room */}
+              <View style={styles.formRow}>
+                <View style={[styles.formField, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Floor</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={newUserData.floor}
+                    onChangeText={text => setNewUserData({ ...newUserData, floor: text })}
+                    placeholder="Floor…"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  {availableFloors
+                    .filter(f => newUserData.floor.length > 0 && f.toLowerCase().includes(newUserData.floor.toLowerCase()) && f !== newUserData.floor)
+                    .slice(0, 3)
+                    .map((f, idx) => (
+                      <TouchableOpacity key={idx} onPress={() => setNewUserData({ ...newUserData, floor: f })} style={styles.suggestionItem}>
+                        <Text style={styles.suggestionItemText}>{f}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+                <View style={[styles.formField, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Office Room</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={newUserData.officeRoom}
+                    onChangeText={text => setNewUserData({ ...newUserData, officeRoom: text })}
+                    placeholder="Room…"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  {availableRooms
+                    .filter(r => newUserData.officeRoom.length > 0 && r.toLowerCase().includes(newUserData.officeRoom.toLowerCase()) && r !== newUserData.officeRoom)
+                    .slice(0, 3)
+                    .map((r, idx) => (
+                      <TouchableOpacity key={idx} onPress={() => setNewUserData({ ...newUserData, officeRoom: r })} style={styles.suggestionItem}>
+                        <Text style={styles.suggestionItemText}>{r}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              </View>
+
+              {/* NEW: Additional Access */}
+              <Text style={styles.sectionTitleModal}>Additional Access</Text>
+              <AdditionalAccessManager
+                value={newUserData.additionalAccess}
+                onChange={val => setNewUserData(prev => ({ ...prev, additionalAccess: val }))}
+                availableFloors={availableFloors}
+                availableRooms={availableRooms}
+              />
 
               {/* Security */}
 <Text style={styles.sectionTitleModal}>Security</Text>
@@ -862,8 +1148,70 @@ const AdminUsers = () => {
                     placeholder="e.g. Senior Officer, Grade A2"
                     placeholderTextColor="#9CA3AF"
                   />
+                  {/* NEW: suggestions from API grades */}
+                  {[...new Set([...functionalGrades, ...availableGrades])]
+                    .filter(g => editUserData.functionalGrade.length > 0 && g.toLowerCase().includes(editUserData.functionalGrade.toLowerCase()) && g !== editUserData.functionalGrade)
+                    .map((grade, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        onPress={() => setEditUserData({ ...editUserData, functionalGrade: grade })}
+                        style={{ padding: 8, backgroundColor: '#F3F4F6', marginTop: 2, borderRadius: 8 }}
+                      >
+                        <Text>{grade}</Text>
+                      </TouchableOpacity>
+                    ))}
                 </View>
               )}
+
+              {/* NEW: Floor & Office Room */}
+              <View style={styles.formRow}>
+                <View style={[styles.formField, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Floor</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={editUserData.floor}
+                    onChangeText={text => setEditUserData({ ...editUserData, floor: text })}
+                    placeholder="Floor…"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  {availableFloors
+                    .filter(f => editUserData.floor.length > 0 && f.toLowerCase().includes(editUserData.floor.toLowerCase()) && f !== editUserData.floor)
+                    .slice(0, 3)
+                    .map((f, idx) => (
+                      <TouchableOpacity key={idx} onPress={() => setEditUserData({ ...editUserData, floor: f })} style={styles.suggestionItem}>
+                        <Text style={styles.suggestionItemText}>{f}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+                <View style={[styles.formField, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>Office Room</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={editUserData.officeRoom}
+                    onChangeText={text => setEditUserData({ ...editUserData, officeRoom: text })}
+                    placeholder="Room…"
+                    placeholderTextColor="#9CA3AF"
+                  />
+                  {availableRooms
+                    .filter(r => editUserData.officeRoom.length > 0 && r.toLowerCase().includes(editUserData.officeRoom.toLowerCase()) && r !== editUserData.officeRoom)
+                    .slice(0, 3)
+                    .map((r, idx) => (
+                      <TouchableOpacity key={idx} onPress={() => setEditUserData({ ...editUserData, officeRoom: r })} style={styles.suggestionItem}>
+                        <Text style={styles.suggestionItemText}>{r}</Text>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              </View>
+
+              {/* NEW: Additional Access */}
+              <Text style={styles.sectionTitleModal}>Additional Access</Text>
+              <AdditionalAccessManager
+                value={editUserData.additionalAccess}
+                onChange={val => setEditUserData(prev => ({ ...prev, additionalAccess: val }))}
+                availableFloors={availableFloors}
+                availableRooms={availableRooms}
+              />
+
             </ScrollView>
 
             {/* Modal Footer */}
@@ -1398,6 +1746,7 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 20,
     borderTopWidth: 1,
+    paddingBottom: Platform.OS === 'android' ? 30 : 20,
     borderTopColor: '#E5E7EB',
   },
   btnSecondary: {
@@ -1464,6 +1813,24 @@ const styles = StyleSheet.create({
   deleteUserName: {
     fontWeight: '700',
     color: '#111827',
+  },
+
+  // NEW: side-by-side form fields
+  formRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  // NEW: suggestion dropdown items
+  suggestionItem: {
+    padding: 8,
+    backgroundColor: '#F3F4F6',
+    marginTop: 2,
+    borderRadius: 8,
+  },
+  suggestionItemText: {
+    fontSize: 14,
+    color: '#374151',
   },
 });
 

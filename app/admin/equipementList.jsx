@@ -12,11 +12,11 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  ArrowLeft, Globe, MapPin, Edit2, Trash2, Plus, Server,
+  ArrowLeft, Globe, MapPin, Edit2, Trash2, Plus, Server, FileText, Lock,
 } from 'lucide-react-native';
 import {
-  Lightbulb, Wind, Video, Lock, Flame, Droplet,
-  Thermometer, Sun, Droplets, Gauge, Activity,
+  Lightbulb, Wind, Video, Flame, Droplet,
+  Thermometer, Sun, Droplets, Gauge, Activity, PlugZap,
 } from 'lucide-react-native';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -28,6 +28,7 @@ const NODE_ICONS = [
   { value: 'access',   label: 'Access',   Icon: Lock,      color: '#10B981' },
   { value: 'fire',     label: 'Fire',     Icon: Flame,     color: '#EF4444' },
   { value: 'water',    label: 'Water',    Icon: Droplet,   color: '#3B82F6' },
+  { value: 'energy',   label: 'Energy',   Icon: PlugZap,   color: '#F59E0B' },
 ];
 
 const SENSOR_TYPES = [
@@ -37,6 +38,7 @@ const SENSOR_TYPES = [
   { value: 'pressure',    label: 'Pressure',    Icon: Gauge,       color: '#8B5CF6' },
   { value: 'co2',         label: 'CO₂',         Icon: Wind,        color: '#06B6D4' },
   { value: 'motion',      label: 'Motion',      Icon: Activity,    color: '#6366F1' },
+  { value: 'energy',      label: 'Energy',      Icon: PlugZap,     color: '#F59E0B' },
 ];
 
 /** Render the correct icon for a given icon key */
@@ -53,29 +55,28 @@ const NodeIcon = ({ iconKey, size = 24 }) => {
  * EquipmentList
  * Props:
  *   onClose              () => void
- *   equipments           Equipment[]  (passed from parent)
+ *   equipments           Equipment[]
  *   onDelete             (id) => void
- *   onUpdate             (id, data) => void   ← NEW: propagates edits to parent
+ *   onUpdate             (id, data) => void
  *   onAddPress           () => void
  */
 const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUpdate, onAddPress }) => {
   const insets = useSafeAreaInsets();
 
-  // Fallback local list (used only if no external equipments provided)
   const [localEquipments, setLocalEquipments] = useState([
-    { id: '1', name: 'Main Server',   nodeId: 'NODE001', ipAddress: '192.168.1.100', location: 'Server Room A', status: 'online',  icon: 'lighting', sensors: ['temperature', 'humidity'] },
-    { id: '2', name: 'Backup Server', nodeId: 'NODE002', ipAddress: '192.168.1.101', location: 'Server Room A', status: 'online',  icon: 'hvac',     sensors: ['temperature'] },
-    { id: '3', name: 'Router Main',   nodeId: 'RTR001',  ipAddress: '192.168.1.1',   location: 'Floor 3',       status: 'offline', icon: 'cameras',  sensors: ['motion'] },
+    { id: '1', name: 'Main Server',   nodeId: 'NODE001', ipAddress: '168.1.100',     floor: 'Floor 1', officeRoom: 'Room A', description: '', status: 'online',  icon: 'lighting', sensors: ['temperature', 'humidity'], mac: '' },
+    { id: '2', name: 'Backup Server', nodeId: 'NODE002', ipAddress: '192.168.1.101', floor: 'Floor 1', officeRoom: 'Room A', description: '', status: 'online',  icon: 'hvac',     sensors: ['temperature'],              mac: '' },
+    { id: '3', name: 'Router Main',   nodeId: 'RTR001',  ipAddress: '192.168.1.1',   floor: 'Floor 3', officeRoom: '',       description: '', status: 'offline', icon: 'cameras',  sensors: ['motion'],                   mac: '' },
   ]);
 
   const equipments = externalEquipments ?? localEquipments;
 
   // Edit modal state
-  const [isModalVisible, setIsModalVisible]   = useState(false);
-  const [editingEquipment, setEditingEquipment] = useState(null);
-  const [formData, setFormData]               = useState({
-    name: '', nodeId: '', ipAddress: '', location: '',
-    status: 'online', icon: 'lighting', sensors: [],
+  const [isModalVisible,    setIsModalVisible]   = useState(false);
+  const [editingEquipment,  setEditingEquipment] = useState(null);
+  const [formData,          setFormData]         = useState({
+    name: '', nodeId: '', ipAddress: '', floor: '', officeRoom: '', description: '',
+    status: 'online', icon: 'lighting', sensors: [], mac: '',
   });
 
   // ── Delete ──────────────────────────────────────────────────────────────
@@ -100,13 +101,17 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
   const handleEdit = (equipment) => {
     setEditingEquipment(equipment);
     setFormData({
-      name:      equipment.name        || '',
-      nodeId:    equipment.nodeId      || '',
-      ipAddress: equipment.ipAddress   || '',
-      location:  equipment.location    || '',
-      status:    equipment.status      || 'online',
-      icon:      equipment.icon        || 'lighting',
-      sensors:   equipment.sensors     || [],
+      name:        equipment.name        || '',
+      nodeId:      equipment.nodeId      || '',
+      ipAddress:   equipment.ipAddress   || '',
+      floor:       equipment.floor       || '',
+      officeRoom:  equipment.officeRoom  || '',
+      description: equipment.description || '',
+      status:      equipment.status      || 'online',
+      icon:        equipment.icon        || 'lighting',
+      sensors:     equipment.sensors     || [],
+      // ── ADDED: preserve MAC (mirrors web — read-only in edit) ──
+      mac:         equipment.mac         || '',
     });
     setIsModalVisible(true);
   };
@@ -127,7 +132,8 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
       Alert.alert('Error', 'Name and Node ID are required');
       return;
     }
-    const id = editingEquipment._id || editingEquipment.id;
+    const id      = editingEquipment._id || editingEquipment.id;
+    // ── ADDED: include mac in updated payload (read-only, just preserved) ──
     const updated = { ...editingEquipment, ...formData };
 
     if (onUpdate) {
@@ -197,7 +203,9 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
           </View>
         ) : (
           equipments.map((item) => {
-            const itemId = item._id || item.id;
+            const itemId      = item._id || item.id;
+            const locationStr = [item.floor, item.officeRoom].filter(Boolean).join(' — ') || '—';
+
             return (
               <View key={itemId} style={styles.card}>
 
@@ -239,8 +247,17 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
                   <View style={styles.detailRow}>
                     <MapPin size={15} color="#6B7280" />
                     <Text style={styles.detailLabel}>Location: </Text>
-                    <Text style={styles.detailValue}>{item.location || '—'}</Text>
+                    <Text style={styles.detailValue}>{locationStr}</Text>
                   </View>
+
+                  {/* ── ADDED: MAC address display (mirrors web eq-detail-row) ── */}
+                  {!!item.mac && (
+                    <View style={styles.detailRow}>
+                      <Lock size={15} color="#8B5CF6" />
+                      <Text style={styles.detailLabel}>MAC: </Text>
+                      <Text style={[styles.detailValue, { color: '#8B5CF6' }]}>{item.mac}</Text>
+                    </View>
+                  )}
 
                   {/* Sensor Tags */}
                   {item.sensors && item.sensors.length > 0 && (
@@ -257,6 +274,10 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
                         );
                       })}
                     </View>
+                  )}
+
+                  {item.lastSeen && (
+                    <Text style={styles.lastSeen}>Last seen: {item.lastSeen}</Text>
                   )}
                 </View>
 
@@ -308,27 +329,105 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Edit Equipment</Text>
 
-            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 480 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 520 }}>
 
-              {/* Basic fields */}
-              {[
-                { key: 'name',      placeholder: 'Name',       label: 'Name *'       },
-                { key: 'nodeId',    placeholder: 'Node ID',    label: 'Node ID *'    },
-                { key: 'ipAddress', placeholder: 'IP Address', label: 'IP Address *' },
-                { key: 'location',  placeholder: 'Location',   label: 'Location'     },
-              ].map(({ key, placeholder, label }) => (
-                <View key={key} style={{ marginBottom: 12 }}>
-                  <Text style={styles.modalLabel}>{label}</Text>
+              {/* Name */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.modalLabel}>Name *</Text>
+                <TextInput
+                  placeholder="Name"
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.modalInput}
+                  value={formData.name}
+                  onChangeText={(text) => setFormData({ ...formData, name: text })}
+                />
+              </View>
+
+              {/* Node ID */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.modalLabel}>Node ID *</Text>
+                <TextInput
+                  placeholder="Node ID"
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.modalInput}
+                  value={formData.nodeId}
+                  onChangeText={(text) => setFormData({ ...formData, nodeId: text })}
+                  autoCapitalize="characters"
+                />
+              </View>
+
+              {/* IP Address */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.modalLabel}>IP Address *</Text>
+                <TextInput
+                  placeholder="IP Address"
+                  placeholderTextColor="#9CA3AF"
+                  style={styles.modalInput}
+                  value={formData.ipAddress}
+                  onChangeText={(text) => setFormData({ ...formData, ipAddress: text })}
+                />
+              </View>
+
+              {/* Floor + Office Room */}
+              <View style={styles.gridRow}>
+                <View style={{ flex: 1, marginBottom: 12 }}>
+                  <Text style={styles.modalLabel}>Floor</Text>
                   <TextInput
-                    placeholder={placeholder}
+                    placeholder="Floor"
                     placeholderTextColor="#9CA3AF"
                     style={styles.modalInput}
-                    value={formData[key]}
-                    onChangeText={(text) => setFormData({ ...formData, [key]: text })}
-                    autoCapitalize={key === 'nodeId' ? 'characters' : 'none'}
+                    value={formData.floor}
+                    onChangeText={(text) => setFormData({ ...formData, floor: text })}
                   />
                 </View>
-              ))}
+                <View style={{ width: 12 }} />
+                <View style={{ flex: 1, marginBottom: 12 }}>
+                  <Text style={styles.modalLabel}>Office Room</Text>
+                  <TextInput
+                    placeholder="Room"
+                    placeholderTextColor="#9CA3AF"
+                    style={styles.modalInput}
+                    value={formData.officeRoom}
+                    onChangeText={(text) => setFormData({ ...formData, officeRoom: text })}
+                  />
+                </View>
+              </View>
+
+              {/* Description */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.modalLabel}>Description</Text>
+                <View style={styles.textareaWrapper}>
+                  <FileText size={16} color="#8B5CF6" style={{ marginTop: 2, marginRight: 8 }} />
+                  <TextInput
+                    placeholder="Additional notes..."
+                    placeholderTextColor="#9CA3AF"
+                    style={[styles.modalInput, styles.modalTextarea]}
+                    value={formData.description}
+                    onChangeText={(text) => setFormData({ ...formData, description: text })}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
+                </View>
+              </View>
+
+              {/* ── ADDED: MAC Address — read-only in edit (mirrors web) ── */}
+              <View style={{ marginBottom: 12 }}>
+                <Text style={styles.modalLabel}>Device MAC Address</Text>
+                {formData.mac ? (
+                  <>
+                    <View style={[styles.macInputWrapper]}>
+                      <Lock size={16} color="#8B5CF6" style={{ marginRight: 8 }} />
+                      <Text style={styles.macReadOnlyText}>{formData.mac}</Text>
+                    </View>
+                    <Text style={styles.helperText}>🔒 Hardware identity — cannot be modified</Text>
+                  </>
+                ) : (
+                  <Text style={[styles.helperText, { fontStyle: 'italic', color: '#9CA3AF' }]}>
+                    No device assigned
+                  </Text>
+                )}
+              </View>
 
               {/* Icon Picker */}
               <Text style={styles.modalLabel}>Node Icon</Text>
@@ -379,7 +478,7 @@ const EquipmentList = ({ onClose, equipments: externalEquipments, onDelete, onUp
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                <Text style={styles.saveText}>💾 Save</Text>
+                <Text style={styles.saveText}>💾 Save Changes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -425,6 +524,7 @@ const styles = StyleSheet.create({
   detailRow:          { flexDirection: 'row', alignItems: 'center', gap: 7 },
   detailLabel:        { fontSize: 13, color: '#6B7280' },
   detailValue:        { fontSize: 13, fontWeight: '600', color: '#111827', fontFamily: 'Courier New' },
+  lastSeen:           { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
 
   sensorTagRow:       { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   sensorTag:          { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderRadius: 20, backgroundColor: 'rgba(139,92,246,0.05)' },
@@ -445,13 +545,19 @@ const styles = StyleSheet.create({
   fab:                { position: 'absolute', right: 14, zIndex: 1000, elevation: 10, shadowColor: '#8B5CF6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12 },
   fabGradient:        { width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center' },
 
+  gridRow:            { flexDirection: 'row' },
   // Modal
   modalOverlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 20 },
-  modalContent:       { backgroundColor: '#fff', borderRadius: 20, padding: 24, maxHeight: '90%' },
+  modalContent:       { backgroundColor: '#fff', borderRadius: 20, padding: 24, maxHeight: '92%' },
   modalTitle:         { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 20 },
   modalLabel:         { fontSize: 13, fontWeight: '600', color: '#111827', marginBottom: 6 },
   modalInput:         { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, fontSize: 14, color: '#111827', backgroundColor: '#F9FAFB' },
-  helperText:         { fontSize: 12, color: '#6B7280' },
+  textareaWrapper:    { flexDirection: 'row', alignItems: 'flex-start', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, backgroundColor: '#F9FAFB' },
+  modalTextarea:      { flex: 1, minHeight: 70, borderWidth: 0, padding: 0, backgroundColor: 'transparent' },
+  helperText:         { fontSize: 12, color: '#6B7280', marginTop: 4 },
+  // ── ADDED: MAC read-only row in edit modal ──
+  macInputWrapper:    { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 10, padding: 12, backgroundColor: '#F3F4F6', opacity: 0.85 },
+  macReadOnlyText:    { fontSize: 14, fontWeight: '600', color: '#6B7280', fontFamily: 'Courier New', letterSpacing: 0.5 },
   typeGrid:           { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4, marginBottom: 4 },
   typeCard:           { width: '30%', flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 6, borderRadius: 10, backgroundColor: '#F9FAFB', borderWidth: 2, borderColor: 'transparent', gap: 4 },
   typeLabel:          { fontSize: 10, fontWeight: '600', color: '#6B7280', textAlign: 'center' },
